@@ -98,8 +98,7 @@ async def health_check():
         "pool": {
             "min": pool.min,
             "max": pool.max,
-            "opened": pool.opened,
-            "busy": pool.busy,
-            "free": pool.free,
+            "increment": pool.increment,
+            "timeout": pool.timeout,
         },
     }

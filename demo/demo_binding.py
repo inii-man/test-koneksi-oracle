@@ -209,7 +209,7 @@ async def demo_output_variable():
     )
     await conn.commit()
     print(f"\n✅ Data berhasil diinsert!")
-    print(f"   ID baru: {int(new_id.getvalue())}")
+    print(f"   ID baru: {int(new_id.getvalue()[0])}")
     print("→ Tidak perlu query SELECT terpisah untuk mendapat ID-nya!")
 
     # Cleanup

@@ -56,15 +56,18 @@ async def demo_basic_connection():
 
 async def demo_connection_pool():
     """
-    Demo 2: Connection Pool
+    Demo 2: Connection Pool + Pool Health Check
     Pool lebih efisien karena koneksi dibuat sekali dan dipakai bersama.
+
+    Catatan: AsyncConnectionPool (oracledb v2.x) tidak expose .opened/.busy/.free
+    secara langsung. Kita track manual menggunakan counter.
     """
     print("\n" + "="*60)
     print("DEMO 2: Connection Pool")
     print("="*60)
 
     # Buat pool dengan min=2, max=5 koneksi
-    pool = await oracledb.create_pool_async(
+    pool = oracledb.create_pool_async(
         user=ORACLE_USER,
         password=ORACLE_PASSWORD,
         dsn=DSN,
@@ -73,27 +76,50 @@ async def demo_connection_pool():
         increment=1,
     )
     print(f"✅ Pool dibuat!")
-    print(f"   Min koneksi   : {pool.min}")
-    print(f"   Max koneksi   : {pool.max}")
-    print(f"   Koneksi aktif : {pool.opened}")
-    print(f"   Koneksi bebas : {pool.free}")
 
-    # Ambil koneksi dari pool
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cursor:
-            await cursor.execute(
-                "SELECT 'Halo dari Oracle!' AS pesan FROM dual"
-            )
-            row = await cursor.fetchone()
-            print(f"\n   Query result : {row[0]}")
-            print(f"   Busy saat query : {pool.busy}")
+    # ── POOL HEALTH CHECK ────────────────────────────────────
+    # Manual tracking: opened/busy/queue tidak tersedia di v2.x AsyncConnectionPool
+    opened = 0          # jumlah koneksi yang telah dibuat ke Oracle
+    busy   = 0          # sedang dipakai oleh request
+    queued = 0          # request yang sedang antri menunggu koneksi kosong
 
-    # Setelah blok selesai, koneksi dikembalikan ke pool
-    print(f"   Busy setelah selesai : {pool.busy}")
-    print(f"   Free setelah selesai : {pool.free}")
+    # Buka beberapa koneksi simultan untuk demonstrasi
+    async def simulate_request(req_id: int):
+        nonlocal opened, busy, queued
+        queued += 1
+        async with pool.acquire() as conn:
+            queued -= 1
+            opened += 1
+            busy   += 1
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT :req_id || ': query dari pool' FROM dual",
+                    {"req_id": req_id},
+                )
+                row = await cursor.fetchone()
+                print(f"   Request #{req_id} → {row[0]}")
+                await asyncio.sleep(0.05)   # simulasi query lambat
+            busy   -= 1
+
+    # Jalankan 3 request bersamaan
+    print("\n   Menjalankan 3 request serentak ke pool...")
+    await asyncio.gather(
+        simulate_request(1),
+        simulate_request(2),
+        simulate_request(3),
+    )
+
+    print("\nPool Health Check:")
+    print(f"✅ Opened connections : {opened}")                # Total conn terbuka
+    print(f"✅ Busy (in use)      : {busy}")                  # Sedang dipakai
+    print(f"✅ Available          : {opened - busy}")         # Siap dipakai
+    print(f"✅ Max allowed        : {pool.max}")
+    print(f"✅ Min guaranteed     : {pool.min}")
+    print(f"✅ Queue requests     : {queued}")                 # Antrian menunggu
+    # ─────────────────────────────────────────────────────────
 
     await pool.close()
-    print("🔌 Pool ditutup")
+    print("\n🔌 Pool ditutup")
 
 
 async def demo_query_oracle_version():
